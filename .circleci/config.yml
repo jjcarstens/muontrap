@@ -23,7 +23,7 @@ jobs:
     steps:
       - run:
           name: Install system dependencies
-          command: apk add --no-cache build-base
+          command: apk add --no-cache build-base cgroup-tools
       - checkout
       - run:
           name: Install hex and rebar
@@ -34,6 +34,9 @@ jobs:
           keys:
             - v1-mix-cache-<< parameters.tag >>-{{ checksum "mix.lock" }}
       - run: mix deps.get
+      - run:
+          name: "Setup cgroups"
+          command: cgcreate -a $(whoami) -g memory,cpu:muontrap_test
       - run: mix test
       - when:
           condition:
