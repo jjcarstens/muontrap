@@ -15,15 +15,47 @@ jobs:
     parameters:
       tag:
         type: string
-    docker:
-      - image: hexpm/elixir:<< parameters.tag >>
+    machine:
+      image: ubuntu-2204:current
+      resource_class: medium
     working_directory: ~/repo
     environment:
       LC_ALL: C.UTF-8
     steps:
       - run:
           name: Install system dependencies
-          command: apk add --no-cache build-base cgroup-tools
+          command: sudo apt-get install -y build-essential cgroup-tools
+      - run:
+          name: Install OTP
+          command: |
+            OTP_VERSION=$(echo "<< parameters.tag >>" | cut -d '-' -f 3)
+            OTP_INSTALL_PATH="/usr/local/otp/$OTP_VERSION"
+            sudo mkdir -p "$OTP_INSTALL_PATH"
+            sudo chown -R $(whoami):$(whoami) /usr/local/otp
+            wget -O /tmp/erlang.tar.gz "https://builds.hex.pm/builds/otp/ubuntu-22.04/OTP-${OTP_VERSION}.tar.gz"
+            tar -zxf /tmp/erlang.tar.gz -C "$OTP_INSTALL_PATH" --strip-components=1
+            "$OTP_INSTALL_PATH"/Install -minimal "$OTP_INSTALL_PATH"
+            echo "export PATH=$OTP_INSTALL_PATH/bin:$PATH" >> "$BASH_ENV"
+            source "$BASH_ENV"
+
+            erl -version
+
+      - run:
+          name: Install Elixir
+          command: |
+            ELIXIR_VERSION=$(echo "<< parameters.tag >>" | cut -d '-' -f 1)
+            OTP_VERSION=$(echo "<< parameters.tag >>" | cut -d '-' -f 3)
+            OTP_MAJOR=${OTP_VERSION%%.*}
+            ELIXIR_INSTALL_PATH="/usr/local/elixir/$ELIXIR_VERSION"
+            sudo mkdir -p "$ELIXIR_INSTALL_PATH"
+            sudo chown -R $(whoami):$(whoami) /usr/local/elixir
+            wget -O /tmp/elixir.zip "https://builds.hex.pm/builds/elixir/v${ELIXIR_VERSION}-otp-${OTP_MAJOR}.zip"
+            unzip -q /tmp/elixir.zip -d "$ELIXIR_INSTALL_PATH"
+            echo "export PATH=$ELIXIR_INSTALL_PATH/bin:$PATH" >> "$BASH_ENV"
+            source "$BASH_ENV"
+
+            elixir -v
+
       - checkout
       - run:
           name: Install hex and rebar
@@ -32,11 +64,11 @@ jobs:
             mix local.rebar --force
       - restore_cache:
           keys:
-            - v1-mix-cache-<< parameters.tag >>-{{ checksum "mix.lock" }}
+            - v2-mix-cache-<< parameters.tag >>-{{ checksum "mix.lock" }}
       - run: mix deps.get
       - run:
           name: "Setup cgroups"
-          command: cgcreate -a $(whoami) -g memory,cpu:muontrap_test
+          command: sudo cgcreate -a $(whoami) -g memory,cpu:muontrap_test
       - run: mix test
       - when:
           condition:
@@ -49,7 +81,7 @@ jobs:
             - run: mix credo -a --strict
             - run: mix dialyzer
       - save_cache:
-          key: v1-mix-cache-<< parameters.tag >>-{{ checksum "mix.lock" }}
+          key: v2-mix-cache-<< parameters.tag >>-{{ checksum "mix.lock" }}
           paths:
             - _build
             - deps
@@ -63,8 +95,8 @@ workflows:
           matrix:
             parameters:
               tag: [
-                1.14.3-erlang-25.2.2-alpine-3.17.0,
-                1.13.4-erlang-24.3.4-alpine-3.15.3,
-                1.12.3-erlang-24.3.4-alpine-3.15.3,
-                1.11.4-erlang-23.3.4.13-alpine-3.15.3
+                1.14.3-erlang-25.2.2,
+                1.13.4-erlang-24.3.4,
+                1.12.3-erlang-24.3.4,
+                1.11.4-erlang-23.3.4.13
               ]
